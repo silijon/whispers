@@ -127,6 +127,9 @@ $AUDIO_CMD | \
             CLIPBOARD_SUCCESS=false
         fi
         
+        # Also write to temp file for zsh injection
+        echo "$command" > /tmp/voice_command
+        
         if [ "$EXECUTE_COMMANDS" = "true" ]; then
             echo "⚡ Executing..."
             eval "$command"
