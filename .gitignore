@@ -11,3 +11,5 @@ wheels/
 
 # ai config
 ai_inference.json
+
+testaudio/
