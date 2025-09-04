@@ -1,0 +1,25 @@
+services:
+  whisper-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: whisper-server:latest
+    container_name: whisper-server
+    ports:
+      - 8080:8080
+    environment:
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
