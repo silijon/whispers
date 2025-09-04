@@ -1,0 +1,105 @@
+#!/bin/bash
+# Voice to API Pipeline
+# Transcribes voice and sends each transcription to an API endpoint
+
+# Configuration
+WHISPER_SERVER="${WHISPER_SERVER:-http://localhost:8080}"
+API_ENDPOINT="${API_ENDPOINT:-http://localhost:8000/plan}"
+AUDIO_DEVICE="${AUDIO_DEVICE:-0}"
+SAMPLE_RATE="${SAMPLE_RATE:-44100}"
+GAIN="${GAIN:-26}"
+SILENCE_THRESHOLD="${SILENCE_THRESHOLD:-0.05}"
+SILENCE_DURATION="${SILENCE_DURATION:-2}"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --endpoint|-e)
+            API_ENDPOINT="$2"
+            shift 2
+            ;;
+        --device|-d)
+            AUDIO_DEVICE="$2"
+            shift 2
+            ;;
+        --list|-l)
+            python3 audio_capture.py --list
+            exit 0
+            ;;
+        --help|-h)
+            echo "Voice to API Pipeline"
+            echo ""
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -e, --endpoint URL   API endpoint (default: http://localhost:8000/plan)"
+            echo "  -d, --device ID      Audio device index (interactive if not specified)"
+            echo "  -l, --list           List available audio devices and exit"
+            echo "  -h, --help           Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  $0                   # Use default endpoint"
+            echo "  $0 -e http://localhost:3000/api/speech"
+            echo "  $0 -d 0              # Use audio device 0"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+echo "🎤 Voice to API Pipeline"
+echo "📡 Whisper Server: $WHISPER_SERVER"
+echo "🌐 API Endpoint: $API_ENDPOINT"
+echo "Speak, then wait for silence to send transcription..."
+echo ""
+
+# Build audio capture command
+AUDIO_CMD="python3 audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
+if [ -n "$AUDIO_DEVICE" ]; then
+    AUDIO_CMD="$AUDIO_CMD --device $AUDIO_DEVICE"
+fi
+
+# Build transcriber command
+TRANSCRIBER_CMD="python3 streaming_transcriber.py --server $WHISPER_SERVER"
+TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-threshold $SILENCE_THRESHOLD"
+TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-duration $SILENCE_DURATION"
+TRANSCRIBER_CMD="$TRANSCRIBER_CMD --sample-rate $SAMPLE_RATE --raw-pcm"
+
+# Run the pipeline and send each transcription to the API
+$AUDIO_CMD | \
+    $TRANSCRIBER_CMD | \
+    while IFS= read -r text; do
+        if [ -n "$text" ]; then
+            echo "📝 Transcribed: $text"
+            
+            # Create JSON payload
+            JSON_PAYLOAD=$(jq -n --arg txt "$text" '{"text_snippet": $txt}')
+            
+            # Send to API
+            echo "📤 Sending to $API_ENDPOINT..."
+            
+            RESPONSE=$(curl -s -X POST "$API_ENDPOINT" \
+                -H "Content-Type: application/json" \
+                -d "$JSON_PAYLOAD" \
+                -w "\n%{http_code}")
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
+                echo "✅ Sent successfully (HTTP $HTTP_CODE)"
+                if [ -n "$BODY" ]; then
+                    echo "Response: $BODY"
+                fi
+            else
+                echo "❌ Failed to send (HTTP $HTTP_CODE)"
+                if [ -n "$BODY" ]; then
+                    echo "Error: $BODY"
+                fi
+            fi
+            echo ""
+        fi
+    done
