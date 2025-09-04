@@ -4,7 +4,6 @@ import sys
 import requests
 import struct
 import math
-import pyperclip
 import os
 import time
 from datetime import datetime
@@ -358,15 +357,12 @@ class StreamingTranscriber:
                         text = self.transcribe_audio(audio_chunks)
                         
                         if text:
-                            print(f"\r{text}")  # Clear line and output transcription to stdout
-                            # Also copy to clipboard
-                            try:
-                                pyperclip.copy(text)
-                                print(f"✓ Copied to clipboard: '{text}'", file=sys.stderr)
-                            except Exception as e:
-                                print(f"⚠ Failed to copy to clipboard: {e}", file=sys.stderr)
+                            # Output transcription to stdout (for piping)
+                            print(text, flush=True)
+                            # Show confirmation on stderr
+                            print(f"✓ Transcribed: '{text}'", file=sys.stderr)
                         else:
-                            print("\r⚠ No text transcribed" + " " * 20, file=sys.stderr)
+                            print("⚠ No text transcribed", file=sys.stderr)
                         
                         # Reset for next recording
                         recording = False

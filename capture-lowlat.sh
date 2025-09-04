@@ -143,7 +143,24 @@ if [ -n "$INITIAL_PROMPT" ]; then
     PYTHON_CMD="$PYTHON_CMD --initial-prompt $(printf '%q' "$INITIAL_PROMPT")"
 fi
 
+# Check if wl-copy is available (Wayland clipboard)
+if command -v wl-copy >/dev/null 2>&1; then
+    CLIPBOARD_CMD="wl-copy"
+    echo "Using wl-copy for clipboard (Wayland)"
+elif command -v xclip >/dev/null 2>&1; then
+    CLIPBOARD_CMD="xclip -selection clipboard"
+    echo "Using xclip for clipboard (X11)"
+else
+    echo "Warning: No clipboard tool found (wl-copy or xclip). Transcriptions will only be printed."
+    CLIPBOARD_CMD="cat"  # Just pass through if no clipboard available
+fi
+
 # Use pw-record (PipeWire) for ultra-low latency
+# Pipe transcriber output to clipboard tool
 PIPEWIRE_LATENCY="80/16000" stdbuf -o0 -e0 pw-record --format=s16 --channels=1 --rate="$SAMPLE_RATE" --target="$AUDIO_SOURCE" - | \
     stdbuf -i0 -o0 -e0 sox -t raw -r "$SAMPLE_RATE" -e signed -b 16 -c 1 - -t wav - vol "$GAIN" dB | \
-    stdbuf -i0 -o0 -e0 bash -c "$PYTHON_CMD"
+    stdbuf -i0 -o0 -e0 bash -c "$PYTHON_CMD" | \
+    while IFS= read -r line; do
+        echo "$line"  # Show on terminal
+        echo -n "$line" | $CLIPBOARD_CMD  # Copy to clipboard
+    done
