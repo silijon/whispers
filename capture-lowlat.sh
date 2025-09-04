@@ -10,16 +10,122 @@ GAIN="26"
 LANGUAGE="en"
 TEMPERATURE="0.0"
 INITIAL_PROMPT=""
+DEFAULT_AUDIO_SOURCE="47"  # Default device in config
 
-# Parse device argument
-AUDIO_SOURCE="47"  # Default
-if [[ "$1" == "-d" && -n "$2" ]]; then
-    AUDIO_SOURCE="$2"
-fi
+# Function to list audio devices
+list_audio_devices() {
+    echo "Available audio input devices:"
+    echo "------------------------------"
+    pactl list short sources 2>/dev/null | grep -v monitor | nl -v 0 | while read num line; do
+        device_id=$(echo "$line" | awk '{print $2}')
+        device_name=$(echo "$line" | awk '{print $3}')
+        description=$(pactl list sources 2>/dev/null | grep -A 20 "Name: $device_id" | grep "Description:" | sed 's/.*Description: //')
+        echo "  [$num] $device_id"
+        if [ -n "$description" ]; then
+            echo "       $description"
+        fi
+    done
+    echo ""
+}
 
-echo "🎤 Low-Latency Audio Capture Test"
+# Function to get audio device
+get_audio_device() {
+    # Check if device was passed as argument
+    if [ -n "$1" ]; then
+        # If numeric, treat as selection index
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            # Get device at index
+            AUDIO_SOURCE=$(pactl list short sources 2>/dev/null | grep -v monitor | sed -n "$((1 + $1))p" | awk '{print $2}')
+            if [ -z "$AUDIO_SOURCE" ]; then
+                echo "Error: Invalid device index: $1"
+                exit 1
+            fi
+        else
+            # Use as device ID directly
+            AUDIO_SOURCE="$1"
+        fi
+    else
+        # Interactive selection
+        list_audio_devices
+        
+        # Get default device (prefer configured default over system default)
+        SYSTEM_DEFAULT=$(pactl info 2>/dev/null | grep "Default Source:" | cut -d' ' -f3)
+        if [ -n "$DEFAULT_AUDIO_SOURCE" ]; then
+            DEFAULT_DISPLAY="$DEFAULT_AUDIO_SOURCE (configured)"
+        elif [ -n "$SYSTEM_DEFAULT" ]; then
+            DEFAULT_DISPLAY="$SYSTEM_DEFAULT (system)"
+        else
+            DEFAULT_DISPLAY="none"
+        fi
+        
+        echo "Enter device number (or press Enter for default: $DEFAULT_DISPLAY):"
+        read -r device_choice
+        
+        if [ -z "$device_choice" ]; then
+            # Use default (prefer configured over system)
+            if [ -n "$DEFAULT_AUDIO_SOURCE" ]; then
+                AUDIO_SOURCE="$DEFAULT_AUDIO_SOURCE"
+            elif [ -n "$SYSTEM_DEFAULT" ]; then
+                AUDIO_SOURCE="$SYSTEM_DEFAULT"
+            else
+                echo "No default audio source found. Please select a device."
+                exit 1
+            fi
+        elif [[ "$device_choice" =~ ^[0-9]+$ ]]; then
+            # Get device at index
+            AUDIO_SOURCE=$(pactl list short sources 2>/dev/null | grep -v monitor | sed -n "$((1 + $device_choice))p" | awk '{print $2}')
+            if [ -z "$AUDIO_SOURCE" ]; then
+                echo "Error: Invalid device selection"
+                exit 1
+            fi
+        else
+            echo "Error: Invalid input. Please enter a number."
+            exit 1
+        fi
+    fi
+}
+
+# Parse command line arguments
+DEVICE_ARG=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --device|-d)
+            DEVICE_ARG="$2"
+            shift 2
+            ;;
+        --list|-l)
+            list_audio_devices
+            exit 0
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -d, --device ID/INDEX   Audio device ID or index (interactive if not specified)"
+            echo "  -l, --list             List available audio devices and exit"
+            echo "  -h, --help            Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                    # Interactive device selection"
+            echo "  $0 -d 0               # Use first audio device"
+            echo "  $0 -d 47              # Use device ID 47"
+            echo "  $0 --list            # List all audio devices"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Get audio device
+get_audio_device "$DEVICE_ARG"
+
+echo "🎤 Low-Latency Audio Capture"
 echo "Using audio source: $AUDIO_SOURCE"
-echo "This bypasses sox/rec and uses pacat directly"
+echo "Settings: ${GAIN}dB gain, ${SILENCE_THRESHOLD} threshold, ${SILENCE_DURATION}s silence"
 echo "Press Ctrl+C to stop"
 echo ""
 
