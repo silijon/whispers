@@ -95,14 +95,34 @@ TRANSCRIBER_CMD="python3 streaming_transcriber.py --server $WHISPER_SERVER"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-threshold $SILENCE_THRESHOLD"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-duration $SILENCE_DURATION"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --sample-rate $SAMPLE_RATE"
-TRANSCRIBER_CMD="$TRANSCRIBER_CMD --show-levels"
+TRANSCRIBER_CMD="$TRANSCRIBER_CMD --show-levels --debug-audio"
 
 echo "Processing WAV file..."
 echo ""
 
-# Stream the WAV file through the pipeline
-cat "$WAV_FILE" | \
-    $TRANSCRIBER_CMD | \
+# Stream the WAV file at real-time speed through the pipeline
+# Use sox for real-time playback if available, otherwise fall back to cat
+if command -v sox >/dev/null 2>&1; then
+    echo "Using sox for real-time playback..."
+    # Convert to raw PCM and stream at real-time speed
+    sox "$WAV_FILE" -t raw -e signed -b 16 -c 1 - | \
+        python3 streaming_transcriber.py --server $WHISPER_SERVER \
+        --silence-threshold $SILENCE_THRESHOLD \
+        --silence-duration $SILENCE_DURATION \
+        --sample-rate $SAMPLE_RATE --raw-pcm --show-levels --debug-audio
+elif command -v ffmpeg >/dev/null 2>&1; then
+    echo "Using ffmpeg for real-time playback..."
+    # Use -re flag for real-time encoding
+    ffmpeg -re -i "$WAV_FILE" -f s16le -ar $SAMPLE_RATE -ac 1 - 2>/dev/null | \
+        python3 streaming_transcriber.py --server $WHISPER_SERVER \
+        --silence-threshold $SILENCE_THRESHOLD \
+        --silence-duration $SILENCE_DURATION \
+        --sample-rate $SAMPLE_RATE --raw-pcm --show-levels --debug-audio
+else
+    echo "Warning: sox or ffmpeg not found, using fast mode (no real-time playback)"
+    cat "$WAV_FILE" | \
+        $TRANSCRIBER_CMD
+fi | \
     while IFS= read -r text; do
         if [ -n "$text" ]; then
             echo "📝 Transcribed: $text"
