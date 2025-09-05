@@ -2,6 +2,9 @@
 # Voice to API Pipeline
 # Transcribes voice and sends each transcription to an API endpoint
 
+# Source common setup
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
 # Configuration
 WHISPER_SERVER="${WHISPER_SERVER:-http://localhost:8080}"
 API_ENDPOINT="${API_ENDPOINT:-http://localhost:8000/plan}"
@@ -23,7 +26,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --list|-l)
-            python3 audio_capture.py --list
+            audio_capture.py --list
             exit 0
             ;;
         --help|-h)
@@ -57,13 +60,13 @@ echo "Speak, then wait for silence to send transcription..."
 echo ""
 
 # Build audio capture command
-AUDIO_CMD="python3 audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
+AUDIO_CMD="audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
 if [ -n "$AUDIO_DEVICE" ]; then
     AUDIO_CMD="$AUDIO_CMD --device $AUDIO_DEVICE"
 fi
 
 # Build transcriber command
-TRANSCRIBER_CMD="python3 streaming_transcriber.py --server $WHISPER_SERVER"
+TRANSCRIBER_CMD="streaming_transcriber.py --server $WHISPER_SERVER"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-threshold $SILENCE_THRESHOLD"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-duration $SILENCE_DURATION"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --sample-rate $SAMPLE_RATE --raw-pcm"

@@ -2,6 +2,9 @@
 # Voice to Command Pipeline
 # Transcribes voice and converts it to bash commands using AI
 
+# Source common setup
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
 # Configuration
 WHISPER_SERVER="${WHISPER_SERVER:-http://localhost:8080}"
 AI_PROVIDER="${AI_PROVIDER:-anthropic}"
@@ -28,7 +31,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --list|-l)
-            python3 audio_capture.py --list
+            audio_capture.py --list
             exit 0
             ;;
         --help|-h)
@@ -74,7 +77,7 @@ echo "Speak your command, then wait for silence..."
 echo ""
 
 # Build audio capture command
-AUDIO_CMD="python3 audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
+AUDIO_CMD="audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
 if [ -n "$AUDIO_DEVICE" ]; then
     AUDIO_CMD="$AUDIO_CMD --device $AUDIO_DEVICE"
 fi
@@ -107,7 +110,7 @@ fi
 echo "✓ Audio capture working"
 
 # Build transcriber command  
-TRANSCRIBER_CMD="python3 streaming_transcriber.py --server $WHISPER_SERVER"
+TRANSCRIBER_CMD="streaming_transcriber.py --server $WHISPER_SERVER"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-threshold $SILENCE_THRESHOLD"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --silence-duration $SILENCE_DURATION"
 TRANSCRIBER_CMD="$TRANSCRIBER_CMD --sample-rate $SAMPLE_RATE --raw-pcm"
@@ -115,7 +118,7 @@ TRANSCRIBER_CMD="$TRANSCRIBER_CMD --sample-rate $SAMPLE_RATE --raw-pcm"
 # Run the full pipeline
 $AUDIO_CMD | \
     $TRANSCRIBER_CMD | \
-    python3 ai_inference.py --provider "$AI_PROVIDER" --prompt-file prompts/bash_command.txt | \
+    ai_inference.py --provider "$AI_PROVIDER" --prompt-file "${PROMPTS_DIR}/bash_command.txt" | \
     while IFS= read -r command; do
         echo "📦 Generated command: $command"
         
