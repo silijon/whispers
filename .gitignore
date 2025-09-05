@@ -12,4 +12,5 @@ wheels/
 # ai config
 ai_inference.json
 
-testaudio/
+audio_debug/
+audio_test/
