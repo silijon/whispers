@@ -16,7 +16,8 @@ class StreamingTranscriber:
                  has_wav_header: bool = True, debug_audio: bool = False,
                  pre_buffer_duration: float = 0.3, language: str = 'en',
                  initial_prompt: Optional[str] = None, temperature: float = 0.0,
-                 chunk_duration: float = 0.03, show_levels: bool = False):
+                 chunk_duration: float = 0.03, show_levels: bool = False,
+                 max_buffer_duration: float = 30.0):
         self.server_url = server_url
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
@@ -29,8 +30,10 @@ class StreamingTranscriber:
         self.temperature = temperature
         self.chunk_duration = chunk_duration
         self.show_levels = show_levels
+        self.max_buffer_duration = max_buffer_duration
         self.chunk_size = int(sample_rate * chunk_duration)  # Configurable chunk size
         self.chunks_per_second = int(1.0 / chunk_duration)
+        self.max_buffer_chunks = int(max_buffer_duration / chunk_duration)  # Max chunks before forced flush
         self.debug_counter = 0
         self.level_counter = 0  # For level display throttling
         self.last_chunk_time = None  # For latency debugging
@@ -73,6 +76,40 @@ class StreamingTranscriber:
         # Require 85% of chunks to be silent (allows for brief noise)
         silence_ratio = silent_chunks / len(recent_chunks)
         return silence_ratio >= 0.85
+    
+    def find_best_split_point(self, audio_chunks: list, start_idx: int = 0) -> int:
+        """Find the best point to split audio chunks at a low-volume point"""
+        if len(audio_chunks) <= start_idx + 10:  # Need at least some chunks to analyze
+            return len(audio_chunks)
+        
+        # Look for the quietest point in the last 30% of the max buffer duration
+        # This helps split at natural pauses while giving good search range
+        search_duration = self.max_buffer_duration * 0.3  # 30% of max buffer duration
+        search_chunks = int(search_duration / self.chunk_duration)
+        search_start = max(start_idx, len(audio_chunks) - search_chunks)
+        search_end = len(audio_chunks)
+        
+        if search_start >= search_end:
+            return search_end
+        
+        # Find chunk with minimum RMS in the search range
+        min_rms = float('inf')
+        best_split = search_end
+        
+        for i in range(search_start, search_end):
+            if i < len(audio_chunks):
+                rms = self.calculate_rms(audio_chunks[i])
+                if rms < min_rms:
+                    min_rms = rms
+                    best_split = i + 1  # Split after this chunk
+        
+        # If we found a relatively quiet point (below threshold), use it
+        # Otherwise, just split at a reasonable default point
+        if min_rms <= self.silence_threshold * 2.0:  # Twice the silence threshold
+            return best_split
+        else:
+            # No good quiet point found, split at 80% of buffer to leave some overlap
+            return max(search_start, int(len(audio_chunks) * 0.8))
     
     def read_wav_header(self, stream) -> dict:
         """Read WAV header from stream"""
@@ -274,6 +311,7 @@ class StreamingTranscriber:
         print(f"📡 Server: {self.server_url}", file=sys.stderr)
         print(f"🔇 Silence threshold: {self.silence_threshold:.3f}, duration: {self.silence_duration}s", file=sys.stderr)
         print(f"⏰ Pre-buffer: {self.pre_buffer_duration}s ({self.pre_buffer_size} chunks @ {self.chunk_duration*1000:.0f}ms each)", file=sys.stderr)
+        print(f"📦 Max buffer: {self.max_buffer_duration}s ({self.max_buffer_chunks} chunks)", file=sys.stderr)
         print(f"🌍 Language: {self.language}, Temperature: {self.temperature}", file=sys.stderr)
         if self.initial_prompt:
             print(f"📝 Prompt: {self.initial_prompt[:50]}...", file=sys.stderr)
@@ -339,7 +377,41 @@ class StreamingTranscriber:
                     
                     # Check for silence (with minimum recording time)
                     min_recording_chunks = int(0.3 / self.chunk_duration)  # At least 0.3 seconds
-                    if len(audio_chunks) > min_recording_chunks and self.detect_silence(audio_chunks):
+                    
+                    # Check if buffer has grown too large (forced flush)
+                    if len(audio_chunks) >= self.max_buffer_chunks:
+                        duration = len(audio_chunks) * self.chunk_duration
+                        print(f"\r⏰ Buffer limit reached ({len(audio_chunks)} chunks = {duration:.1f}s), finding split point..." + " " * 10, file=sys.stderr)
+                        
+                        # Find the best split point in the buffer
+                        split_point = self.find_best_split_point(audio_chunks)
+                        
+                        # Transcribe up to the split point
+                        chunks_to_transcribe = audio_chunks[:split_point]
+                        remaining_chunks = audio_chunks[split_point:]
+                        
+                        if chunks_to_transcribe:
+                            split_duration = len(chunks_to_transcribe) * self.chunk_duration
+                            remaining_duration = len(remaining_chunks) * self.chunk_duration
+                            print(f"   Transcribing first {split_duration:.1f}s, keeping {remaining_duration:.1f}s ({len(remaining_chunks)} chunks)...", file=sys.stderr)
+                            
+                            text = self.transcribe_audio(chunks_to_transcribe)
+                            
+                            if text:
+                                # Output transcription to stdout (for piping)
+                                print(text, flush=True)
+                                # Show confirmation on stderr
+                                print(f"✓ Transcribed (forced): '{text}'", file=sys.stderr)
+                            else:
+                                print("⚠ No text transcribed (forced)", file=sys.stderr)
+                        
+                        # Keep remaining chunks for continuation
+                        audio_chunks = remaining_chunks
+                        
+                        # If we didn't leave enough remaining chunks, continue recording
+                        # without resetting the recording state
+                        
+                    elif len(audio_chunks) > min_recording_chunks and self.detect_silence(audio_chunks):
                         duration = len(audio_chunks) * self.chunk_duration
                         # Clear level display and show processing message
                         print(f"\r🔇 Silence detected, processing {len(audio_chunks)} chunks (~{duration:.1f}s)..." + " " * 10, file=sys.stderr)
@@ -403,6 +475,8 @@ def main():
                        help='Initial prompt to help Whisper understand context')
     parser.add_argument('--temperature', type=float, default=0.0,
                        help='Temperature for transcription (0.0 = deterministic, default: 0.0)')
+    parser.add_argument('--max-buffer-duration', type=float, default=30.0,
+                       help='Maximum buffer duration in seconds before forced flush (default: 30.0)')
     
     args = parser.parse_args()
     
@@ -418,7 +492,8 @@ def main():
         initial_prompt=args.initial_prompt,
         temperature=args.temperature,
         chunk_duration=args.chunk_duration,
-        show_levels=args.show_levels
+        show_levels=args.show_levels,
+        max_buffer_duration=args.max_buffer_duration
     )
     
     if args.debug_audio:
