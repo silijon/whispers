@@ -75,7 +75,7 @@ echo ""
 
 # Get WAV file info for transcriber configuration
 # Try to extract sample rate using sox or ffprobe if available
-SAMPLE_RATE=16000  # Default
+SAMPLE_RATE=44100  # Default
 if command -v sox >/dev/null 2>&1; then
     DETECTED_RATE=$(sox --i -r "$WAV_FILE" 2>/dev/null)
     if [ -n "$DETECTED_RATE" ]; then
