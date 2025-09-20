@@ -8,8 +8,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 # Configuration
 WHISPER_SERVER="${WHISPER_SERVER:-http://localhost:8080}"
 API_ENDPOINT="${API_ENDPOINT:-http://localhost:8000/plan}"
-AUDIO_DEVICE="${AUDIO_DEVICE:-0}"
-SAMPLE_RATE="${SAMPLE_RATE:-44100}"
+AUDIO_DEVICE="${AUDIO_DEVICE:-27}"
+SAMPLE_RATE="${SAMPLE_RATE:-48000}"
 GAIN="${GAIN:-26}"
 SILENCE_THRESHOLD="${SILENCE_THRESHOLD:-0.05}"
 SILENCE_DURATION="${SILENCE_DURATION:-2}"
@@ -64,6 +64,8 @@ AUDIO_CMD="audio_capture.py --sample-rate $SAMPLE_RATE --gain $GAIN"
 if [ -n "$AUDIO_DEVICE" ]; then
     AUDIO_CMD="$AUDIO_CMD --device $AUDIO_DEVICE"
 fi
+
+echo $AUDIO_CMD
 
 # Build transcriber command
 TRANSCRIBER_CMD="streaming_transcriber.py --server $WHISPER_SERVER"

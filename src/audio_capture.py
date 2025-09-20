@@ -21,7 +21,7 @@ class AudioCapture:
         self.gain_linear = 10 ** (gain_db / 20.0)  # Convert dB to linear
         self.block_size = block_size or int(sample_rate * 0.03)  # 30ms blocks for low latency
         self.running = False
-        
+
     def list_audio_devices(self) -> List[Dict[str, Any]]:
         """List available audio input devices"""
         devices = []
@@ -50,6 +50,7 @@ class AudioCapture:
                       f"{device_dict['default_samplerate']:.0f}Hz, "
                       f"{hostapi_dict['name']}")
         
+
         print()
         return devices
     
@@ -80,8 +81,12 @@ class AudioCapture:
             print("No input devices found!")
             sys.exit(1)
         
-        # Get default device
+        # Try to find active monitor source
         default_device = sd.default.device[0] if sd.default.device[0] is not None else devices[0]['index']
+        
+        # Fall back to system default if no monitor found
+        if default_device is None:
+            default_device = sd.default.device[0] if sd.default.device[0] is not None else devices[0]['index']
         
         print(f"Enter device number (or press Enter for default [{default_device}]):")
         try:
@@ -171,8 +176,8 @@ def main():
                        help='List available audio devices and exit')
     
     # Audio parameters
-    parser.add_argument('--sample-rate', '-r', type=int, default=16000,
-                       help='Sample rate in Hz (default: 16000)')
+    parser.add_argument('--sample-rate', '-r', type=int, default=44100,
+                       help='Sample rate in Hz (default: 44100)')
     parser.add_argument('--channels', '-c', type=int, default=1,
                        help='Number of channels (default: 1)')
     parser.add_argument('--gain', '-g', type=float, default=26.0,
@@ -202,7 +207,7 @@ def main():
     if args.list:
         capture.list_audio_devices()
         return
-    
+
     # Get device
     device_index = capture.get_audio_device(args.device)
     capture.device = device_index
